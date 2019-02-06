@@ -46,7 +46,7 @@ class Renappy(Redis):
         return [snappy.decompress(datum) for datum in data]
 
     def mget_dict(self, keys):
-        refers = self.mget(keys)
+        data = self.mget(keys)
         return [json.loads(snappy.decompress(datum)) for datum in data]
 
     def set_empty_list_batch(self, key_sets):
