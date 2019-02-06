@@ -47,9 +47,9 @@ imc.flush_all()
 # 3. put in each secondary index.(db 2)
 imc.init_cluster(data)
 
-# Load minhash objects. These are instance of datasketch's MinHash object.
 users = data.keys()
 for user in users:
+    # Print similar top 10 of each user
     print(user, imc.most_common(user, count=10))
 
 # You don't need care about duplicated!
@@ -62,9 +62,10 @@ imc.update_cluster(update_data)
 
 print('======== UPDATED!! =========')
 
-# You can check user 5 more similer than before.
+# You can check user 5 more similar than before.
 for user in users:
     print(user, imc.most_common(user, count=10))
+
 ```
 And this is result.
 ```
@@ -97,3 +98,6 @@ user11 [(b'user1', 45), (b'user2', 36), (b'user5', 13), (b'user9', 7)]
 - Upload on pypi
 - Improve performance
 - Implement another language.
+
+# Special Thanks
+[@GulliverNam](https://github.com/GulliverNam)
