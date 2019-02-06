@@ -2,6 +2,7 @@ import snappy
 import simplejson as json
 
 from redis import Redis
+from redis.client import Pipeline
 
 
 class Renappy(Redis):
@@ -28,6 +29,13 @@ class Renappy(Redis):
                          max_connections=max_connections)
         self.works = 0
         self.p = self.pipeline()
+
+    def pipeline(self, transaction=True, shard_hint=None):
+        return RenappyPipeline(
+            self.connection_pool,
+            self.response_callbacks,
+            transaction,
+            shard_hint)
 
     def set_dict(self, key, o):
         self.set_str(key, json.dumps(o))
@@ -71,3 +79,6 @@ class Renappy(Redis):
     def pipe_force_execute(self):
         self.p.execute()
 
+
+class RenappyPipeline(Pipeline, Renappy):
+    pass
