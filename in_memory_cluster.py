@@ -1,5 +1,6 @@
 import io
 import pickle
+from collections import Counter
 
 from datasketch import MinHash
 
@@ -8,32 +9,14 @@ from renappy import Renappy
 
 class InMemoryCluster:
     def __init__(self, minhash_host='localhost:6379', secondary_index_host=None, minhash_db=1, secondary_index_db=2,
-                 num_perm=100, load_data_per=10000):
+                 num_perm=128, seed=1, load_data_per=10000):
         if not secondary_index_host:
             secondary_index_host = minhash_host
 
         # minhash redis host, minhash redis port
         mr_host, mr_port = minhash_host.split(":")
 
-        # secondary index redis host, secondary index redis portdef load_minhash_objs(self, keys):
-        byte_streams = [io.BytesIO(byte_obj) for byte_obj in self.m_r.mget_str(keys)]
-        objs =[]
-
-        for byte_stream in byte_streams:
-            unpickler = pickle.Unpickler(byte_stream)
-            objs.append(unpickler.load())
-
-        return objs
-
-    def search_secondary_index(self, hash_obj):
-        keys = []
-        for i, hash_value in enumerate(hash_obj.digest()):
-            secondary_key = '{}-{}'.format(i, hash_value)
-
-            l = self.s_r.lrange(secondary_key, 0, -1)
-            keys.extend(l)
-
-        return keys
+        # secondary index redis host, secondary index redis port
         sr_host, sr_port = secondary_index_host.split(":")
 
         # minhash redis
@@ -42,6 +25,7 @@ class InMemoryCluster:
         self.s_r = Renappy(host=sr_host, port=sr_port, db=secondary_index_db)
         self.num_perm = num_perm
         self.load_data_per = load_data_per
+        self.seed = seed
 
     def flush_all(self):
         self.m_r.flushdb()
@@ -80,6 +64,12 @@ class InMemoryCluster:
             keys.extend(l)
 
         return keys
+
+    def most_common(self, key, count=10):
+        minhash_obj = self.load_minhash_objs([key])[0]
+        ssi = self.search_secondary_index(minhash_obj)
+        # Remove self element
+        return Counter(ssi).most_common(count)[1:]
 
     def _update_secondary_index(self, data, key):
         byte_stream = io.BytesIO(self.m_r.get_str(key))
@@ -150,7 +140,7 @@ class InMemoryCluster:
         if exist_stream:
             hash_func = pickle.load(exist_stream)
         else:
-            hash_func = MinHash(num_perm=self.num_perm)
+            hash_func = MinHash(num_perm=self.num_perm, seed=self.seed)
 
         for stream in streams:
             hash_func.update(stream.encode('utf-8'))
@@ -166,5 +156,8 @@ class InMemoryCluster:
         byte_stream.seek(0)
         byte_array = byte_stream.read()
         return byte_array
+
+
+
 
 
