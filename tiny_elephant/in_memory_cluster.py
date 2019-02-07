@@ -3,8 +3,7 @@ import pickle
 from collections import Counter
 
 from datasketch import MinHash
-
-from renappy import Renappy
+from tiny_elephant.renappy import Renappy
 
 
 class InMemoryCluster:
