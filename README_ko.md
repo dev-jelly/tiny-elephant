@@ -6,7 +6,20 @@
 - Redis
 - python3
 - [snappy](https://github.com/google/snappy)
+### Snappy 설치 
+#### OSX
+```bash
+brew install snappy
+```
+#### Ubuntu
+```bash
+apt install libsnappy-dev
+```
 
+# 설치
+```bash
+pip install tiny-elephant
+```
 # 사용법
 프로젝트를 클론하시고 다음 코드를 실행해보세요.
 ```python

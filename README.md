@@ -1,17 +1,32 @@
+
 # Tiny Elephant(English)
 In memory based collaborative filtering. Implementation of [this slide](https://www.slideshare.net/deview/261-52784785).
-This is written by pyhton.
+This is written by python.
 
 ## Requirements
 - Redis
 - python3
 - [snappy](https://github.com/google/snappy)
 
+### Install snappy 
+#### OSX
+```bash
+brew install snappy
+```
+#### Ubuntu
+```bash
+apt install libsnappy-dev
+```
+
+# Install
+```bash
+pip install tiny-elephant
+```
+
 # Usage
 Clone this project and run next way 
 ```python
-from collections import Counter
-from in_memory_cluster import InMemoryCluster
+from tiny_elephant.in_memory_cluster import InMemoryCluster
 
 # Data structure is dictionary
 data = {
