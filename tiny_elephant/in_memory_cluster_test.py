@@ -1,4 +1,4 @@
-from in_memory_cluster import InMemoryCluster
+from tiny_elephant.in_memory_cluster import InMemoryCluster
 
 # Data structure is dictionary
 data = {
