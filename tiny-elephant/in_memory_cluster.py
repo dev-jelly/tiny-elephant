@@ -1,4 +1,4 @@
-import io
+from io import BytesIO
 import pickle
 from collections import Counter
 
@@ -46,7 +46,7 @@ class InMemoryCluster:
                 self._generate_and_save_secondary_index([key])
 
     def most_common(self, key, count=10):
-        byte_stream = io.BytesIO(self.m_r.get_str(key))
+        byte_stream = BytesIO(self.m_r.get_str(key))
         minhash = self._byte_array_to_obj(byte_stream)
         ssi = self._search_secondary_index(minhash)
         # Remove self element
@@ -77,7 +77,7 @@ class InMemoryCluster:
 
             batch_data = data[begin:end]
             batch_objs = self.m_r.mget_str(batch_data)
-            batch_streams = [io.BytesIO(byte_obj) for byte_obj in batch_objs]
+            batch_streams = [BytesIO(byte_obj) for byte_obj in batch_objs]
 
             batch_pairs = []
             for key, byte_stream in zip(batch_data, batch_streams):
@@ -98,7 +98,7 @@ class InMemoryCluster:
         self.s_r.pipe_force_execute()
 
     def _update_secondary_index(self, key, streams):
-        byte_stream = io.BytesIO(self.m_r.get_str(key))
+        byte_stream = BytesIO(self.m_r.get_str(key))
         hash_func = self._byte_array_to_obj(byte_stream)
         org_hash_values = hash_func.digest()
         for stream in streams:
@@ -126,7 +126,7 @@ class InMemoryCluster:
 
     @staticmethod
     def _obj_to_byte_array(obj):
-        byte_stream = io.BytesIO()
+        byte_stream = BytesIO()
         try:
             pickler = pickle.Pickler(byte_stream)
             pickler.dump(obj)

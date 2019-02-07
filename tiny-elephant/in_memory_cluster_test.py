@@ -1,4 +1,3 @@
-from collections import Counter
 from in_memory_cluster import InMemoryCluster
 
 # Data structure is dictionary
