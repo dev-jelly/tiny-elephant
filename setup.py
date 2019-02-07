@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name = 'tiny_elephant',
     packages = find_packages(),
-    version = '0.1',
+    version = '0.1.1',
     description = 'In memory based collaborative filtering',
     author = 'Hyeon-Mook Jerry Choi',
     author_email = 'chm073@gmail.com',
