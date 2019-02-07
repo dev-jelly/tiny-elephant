@@ -46,7 +46,7 @@ class InMemoryCluster:
                 self._generate_and_save_secondary_index([key])
 
     def most_common(self, key, count=10):
-        byte_stream = io.BytesIO(self.m_r.mget_str(key))
+        byte_stream = io.BytesIO(self.m_r.get_str(key))
         minhash = self._byte_array_to_obj(byte_stream)
         ssi = self._search_secondary_index(minhash)
         # Remove self element
