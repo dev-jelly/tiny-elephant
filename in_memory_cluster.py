@@ -32,132 +32,112 @@ class InMemoryCluster:
         self.s_r.flushdb()
 
     def init_cluster(self, data):
-        for key in data.keys():
-            self._generate_minhash_and_save(key, data[key])
+        for key, streams in data.items():
+            self._generate_and_save_minhash(key, streams)
         keys = self.m_r.keys()
         self._generate_and_save_secondary_index(keys)
 
     def update_cluster(self, data):
-        for key in data.keys():
+        for key, streams in data.items():
             if self.m_r.exists(key):
-                self._update_secondary_index(data, key)
+                self._update_secondary_index(key, streams)
             else:
-                self._generate_minhash_and_save(key, data[key])
+                self._generate_and_save_minhash(key, streams)
                 self._generate_and_save_secondary_index([key])
 
-    def load_minhash_objs(self, keys):
-        byte_streams = [io.BytesIO(byte_obj) for byte_obj in self.m_r.mget_str(keys)]
-        objs = []
-
-        for byte_stream in byte_streams:
-            unpickler = pickle.Unpickler(byte_stream)
-            objs.append(unpickler.load())
-
-        return objs
-
-    def search_secondary_index(self, hash_obj):
-        keys = []
-        for i, hash_value in enumerate(hash_obj.digest()):
-            secondary_key = '{}-{}'.format(i, hash_value)
-
-            l = self.s_r.lrange(secondary_key, 0, -1)
-            keys.extend(l)
-
-        return keys
-
     def most_common(self, key, count=10):
-        minhash_obj = self.load_minhash_objs([key])[0]
-        ssi = self.search_secondary_index(minhash_obj)
+        byte_stream = io.BytesIO(self.m_r.mget_str(key))
+        minhash = self._byte_array_to_obj(byte_stream)
+        ssi = self._search_secondary_index(minhash)
         # Remove self element
-        return Counter(ssi).most_common(count)[1:]
+        return Counter(ssi).most_common(count + 1)[1:]
 
-    def _update_secondary_index(self, data, key):
-        byte_stream = io.BytesIO(self.m_r.get_str(key))
-        unpickler = pickle.Unpickler(byte_stream)
-        hash_func = unpickler.load()
-        org_hash_values = hash_func.digest()
-        for stream in data[key]:
-            hash_func.update(stream.encode('utf-8'))
-        update_hash_values = hash_func.digest()
-        need_remove_secondary_index = []
-        for i in range(len(org_hash_values)):
-            if org_hash_values[i] != update_hash_values[i]:
-                need_remove_secondary_index.append(i)
-        pipe = self.s_r.pipeline()
-        for i in need_remove_secondary_index:
-            org_secondary_key = '{}-{}'.format(i, org_hash_values[i])
-            pipe.lrem(org_secondary_key, 1, key)
-            update_secondary_key = '{}-{}'.format(i, update_hash_values[i])
-            pipe.lpush(update_secondary_key, key)
-        self.m_r.set_str(key, self._obj_to_byte_array(hash_func))
-        pipe.execute()
+    def _generate_minhash(self, streams):
+        minhash = MinHash(num_perm=self.num_perm, seed=self.seed)
 
-    def _generate_minhash_and_save(self, key, stream):
-        hash_func = self._generate_minhash_func(key, stream)
-        byte_array = self._obj_to_byte_array(hash_func)
+        for stream in streams:
+            minhash.update(stream.encode('utf-8'))
+
+        return minhash
+
+    def _generate_and_save_minhash(self, key, streams):
+        minhash = self._generate_minhash(streams)
+        byte_array = self._obj_to_byte_array(minhash)
         self.m_r.set_str(key, byte_array)
 
-    def _load_minhash(self, data, per):
+    def _load_minhash(self, data, batch_size):
         data_len = len(data)
-        num_iter = data_len // per
+        num_iter = data_len // batch_size
         for index in range(num_iter + 1):
-            begin = index * per
-            end = begin + per
-            if end > data_len:
-                batch_data = data[begin:]
-            else:
-                batch_data = data[begin:end]
+            begin = index * batch_size
+            end = begin + batch_size
 
-            byte_objs = self.m_r.mget_str(batch_data)
-            byte_streams = [io.BytesIO(byte_obj) for byte_obj in byte_objs]
-            minhash_objs = []
-            for key, byte_stream in zip(batch_data, byte_streams):
-                unpickler = pickle.Unpickler(byte_stream)
-                minhash_objs.append((key, unpickler.load()))
-            yield minhash_objs
+            if end > data_len:
+                end = -1
+
+            batch_data = data[begin:end]
+            batch_objs = self.m_r.mget_str(batch_data)
+            batch_streams = [io.BytesIO(byte_obj) for byte_obj in batch_objs]
+
+            batch_pairs = []
+            for key, byte_stream in zip(batch_data, batch_streams):
+                batch_pairs.append((key, self._byte_array_to_obj(byte_stream)))
+            yield batch_pairs
         yield None
 
-    def _create_and_push_secondary_index(self, key, hash_obj):
-        for i, hash_value in enumerate(hash_obj.digest()):
-            secondary_key = '{}-{}'.format(i, hash_value)
-            self.s_r.push_batch(secondary_key, key)
-
     def _generate_and_save_secondary_index(self, keys):
-        batch_objs = self._load_minhash(keys, self.load_data_per)
+        batch_pairs = self._load_minhash(keys, self.load_data_per)
         while True:
-            batch = next(batch_objs)
+            batch = next(batch_pairs)
             if not batch:
                 break
             for key, hash_obj in batch:
-                self._create_and_push_secondary_index(key, hash_obj)
+                for i, hash_value in enumerate(hash_obj.digest()):
+                    secondary_key = '{}-{}'.format(i, hash_value)
+                    self.s_r.push_batch(secondary_key, key)
         self.s_r.pipe_force_execute()
 
-    def _generate_minhash_func(self, key, streams):
-        exist_stream = None
-        if self.m_r.exists(key):
-            exist_stream = self.m_r.get_str(key)
-
-        if exist_stream:
-            hash_func = pickle.load(exist_stream)
-        else:
-            hash_func = MinHash(num_perm=self.num_perm, seed=self.seed)
-
+    def _update_secondary_index(self, key, streams):
+        byte_stream = io.BytesIO(self.m_r.get_str(key))
+        hash_func = self._byte_array_to_obj(byte_stream)
+        org_hash_values = hash_func.digest()
         for stream in streams:
             hash_func.update(stream.encode('utf-8'))
+        update_hash_values = hash_func.digest()
 
-        return hash_func
+        pipe = self.s_r.pipeline()
+        for i in range(self.num_perm):
+            if org_hash_values[i] != update_hash_values[i]:
+                org_secondary_key = '{}-{}'.format(i, org_hash_values[i])
+                pipe.lrem(org_secondary_key, 1, key)
+                update_secondary_key = '{}-{}'.format(i, update_hash_values[i])
+                pipe.lpush(update_secondary_key, key)
+        self.m_r.set_str(key, self._obj_to_byte_array(hash_func))
+        pipe.execute()
+
+    def _search_secondary_index(self, hash_obj):
+        keys = []
+        for i, hash_value in enumerate(hash_obj.digest()):
+            secondary_key = '{}-{}'.format(i, hash_value)
+            candidate = self.s_r.lrange(secondary_key, 0, -1)
+            keys.extend(candidate)
+
+        return keys
 
     @staticmethod
     def _obj_to_byte_array(obj):
         byte_stream = io.BytesIO()
-        pickler = pickle.Pickler(byte_stream)
+        try:
+            pickler = pickle.Pickler(byte_stream)
+            pickler.dump(obj)
+            byte_stream.seek(0)
+            byte_array = byte_stream.read()
+            return byte_array
 
-        pickler.dump(obj)
-        byte_stream.seek(0)
-        byte_array = byte_stream.read()
-        return byte_array
+        finally:
+            byte_stream.close()
 
-
-
-
-
+    @staticmethod
+    def _byte_array_to_obj(byte_stream):
+        unpickler = pickle.Unpickler(byte_stream)
+        return unpickler.load()
