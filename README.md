@@ -110,7 +110,6 @@ user11 [(b'user1', 45), (b'user2', 36), (b'user5', 13), (b'user9', 7)]
 ```
 
 # TODO
-- Upload on pypi
 - Improve performance
 - Implement another language.
 
