@@ -7,45 +7,37 @@ from tiny_elephant.renappy import Renappy
 
 
 class InMemoryCluster:
-    def __init__(self, minhash_host='localhost:6379', secondary_index_host=None, minhash_db=1, secondary_index_db=2,
-                 num_perm=128, seed=1, load_data_per=10000):
-        if not secondary_index_host:
-            secondary_index_host = minhash_host
+    def __init__(self, minhash_host='localhost:6379', db=1, num_perm=128, seed=1,
+                 load_data_per=10000, minhash_prefix='min_____',
+                 secondary_index_prefix='sip_____'):
 
         # minhash redis host, minhash redis port
         mr_host, mr_port = minhash_host.split(":")
 
-        # secondary index redis host, secondary index redis port
-        sr_host, sr_port = secondary_index_host.split(":")
-
         # minhash redis
-        self.m_r = Renappy(host=mr_host, port=mr_port, db=minhash_db)
-        # secondary index redis
-        self.s_r = Renappy(host=sr_host, port=sr_port, db=secondary_index_db)
+        self.redis = Renappy(host=mr_host, port=mr_port, db=db)
         self.num_perm = num_perm
         self.load_data_per = load_data_per
         self.seed = seed
 
-    def flush_all(self):
-        self.m_r.flushdb()
-        self.s_r.flushdb()
+        # Minhash prefix
+        self.mp = minhash_prefix
+        # Secondary index format
+        self.sif = secondary_index_prefix + '{}-{}'
 
-    def init_cluster(self, data):
-        for key, streams in data.items():
-            self._generate_and_save_minhash(key, streams)
-        keys = self.m_r.keys()
-        self._generate_and_save_secondary_index(keys)
+    def flush(self):
+        self.redis.flushdb()
 
     def update_cluster(self, data):
         for key, streams in data.items():
-            if self.m_r.exists(key):
+            if self.redis.exists(self.mp + key):
                 self._update_secondary_index(key, streams)
             else:
                 self._generate_and_save_minhash(key, streams)
                 self._generate_and_save_secondary_index([key])
 
     def most_common(self, key, count=10):
-        byte_stream = BytesIO(self.m_r.get_str(key))
+        byte_stream = BytesIO(self.redis.get_str(self.mp + key))
         minhash = self._byte_array_to_obj(byte_stream)
         ssi = self._search_secondary_index(minhash)
         # Remove self element
@@ -62,7 +54,7 @@ class InMemoryCluster:
     def _generate_and_save_minhash(self, key, streams):
         minhash = self._generate_minhash(streams)
         byte_array = self._obj_to_byte_array(minhash)
-        self.m_r.set_str(key, byte_array)
+        self.redis.set_str(self.mp + key, byte_array)
 
     def _load_minhash(self, data, batch_size):
         data_len = len(data)
@@ -72,10 +64,12 @@ class InMemoryCluster:
             end = begin + batch_size
 
             if end > data_len:
-                end = -1
+                batch_data = data[begin:]
+            else:
+                batch_data = data[begin:end]
 
-            batch_data = data[begin:end]
-            batch_objs = self.m_r.mget_str(batch_data)
+            batch_keys = list(map(lambda x: self.mp + x, batch_data))
+            batch_objs = self.redis.mget_str(batch_keys)
             batch_streams = [BytesIO(byte_obj) for byte_obj in batch_objs]
 
             batch_pairs = []
@@ -92,33 +86,33 @@ class InMemoryCluster:
                 break
             for key, hash_obj in batch:
                 for i, hash_value in enumerate(hash_obj.digest()):
-                    secondary_key = '{}-{}'.format(i, hash_value)
-                    self.s_r.push_batch(secondary_key, key)
-        self.s_r.pipe_force_execute()
+                    secondary_key = self.sif.format(i, hash_value)
+                    self.redis.push_batch(secondary_key, key)
+        self.redis.pipe_force_execute()
 
     def _update_secondary_index(self, key, streams):
-        byte_stream = BytesIO(self.m_r.get_str(key))
+        byte_stream = BytesIO(self.redis.get_str(self.mp + key))
         hash_func = self._byte_array_to_obj(byte_stream)
         org_hash_values = hash_func.digest()
         for stream in streams:
             hash_func.update(stream.encode('utf-8'))
         update_hash_values = hash_func.digest()
 
-        pipe = self.s_r.pipeline()
+        pipe = self.redis.pipeline()
         for i in range(self.num_perm):
             if org_hash_values[i] != update_hash_values[i]:
-                org_secondary_key = '{}-{}'.format(i, org_hash_values[i])
+                org_secondary_key = self.sif.format(i, org_hash_values[i])
                 pipe.lrem(org_secondary_key, 1, key)
-                update_secondary_key = '{}-{}'.format(i, update_hash_values[i])
+                update_secondary_key = self.sif.format(i, update_hash_values[i])
                 pipe.lpush(update_secondary_key, key)
-        self.m_r.set_str(key, self._obj_to_byte_array(hash_func))
+        pipe.set_str(self.mp + key, self._obj_to_byte_array(hash_func))
         pipe.execute()
 
     def _search_secondary_index(self, hash_obj):
         keys = []
         for i, hash_value in enumerate(hash_obj.digest()):
-            secondary_key = '{}-{}'.format(i, hash_value)
-            candidate = self.s_r.lrange(secondary_key, 0, -1)
+            secondary_key = self.sif.format(i, hash_value)
+            candidate = self.redis.lrange(secondary_key, 0, -1)
             keys.extend(candidate)
 
         return keys

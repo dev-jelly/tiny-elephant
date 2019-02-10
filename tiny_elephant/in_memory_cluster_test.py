@@ -18,21 +18,18 @@ data = {
 # Initialize instance
 imc = InMemoryCluster(
     minhash_host='localhost:6379',
-    secondary_index_host='localhost:6379',
-    minhash_db=1,
-    secondary_index_db=2,
     seed=1
 )
 
 # Flush minhash & secondary index db on redis
 # In example db 1 & 2
-imc.flush_all()
+imc.flush()
 
-# init_cluster method run next ways.
+# update_cluster method run next ways.
 # 1. Generate minhash by data and save on redis(db 1).
 # 2. Load minhash objects and generate secondary index.
 # 3. put in each secondary index.(db 2)
-imc.init_cluster(data)
+imc.update_cluster(data)
 
 # Load minhash objects. These are instance of datasketch's MinHash object.
 users = data.keys()
@@ -43,8 +40,6 @@ for user in users:
 update_data = {'user1': ['airplane', 'banana', 'cat'], 'user5': ['hobby', 'internet', 'jogging', 'banana', 'cat', 'dog']}
 
 # You should use update_cluster method after init_cluster
-# init_cluster is faster more than update_cluster
-# So use init_cluster when put your first data.
 imc.update_cluster(update_data)
 
 print('======== UPDATED!! =========')
